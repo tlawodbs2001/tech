@@ -1,0 +1,92 @@
+name: JJaept 콘텐츠 자동 생성
+
+on:
+  schedule:
+    # GitHub Actions cron은 UTC 기준입니다.
+    - cron: "0 0 * * *"   # KST 09:00 증권 리포트
+    - cron: "30 0 * * *"  # KST 09:30 오전 생활 콘텐츠
+    - cron: "0 5 * * *"   # KST 14:00 오후 생활 콘텐츠
+  workflow_dispatch:
+    inputs:
+      content_type:
+        description: "수동 실행 콘텐츠 유형"
+        required: true
+        default: "lifestyle_am"
+        type: choice
+        options:
+          - stock
+          - lifestyle_am
+          - lifestyle_pm
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jjaept-content-${{ github.event.schedule || inputs.content_type || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: JJaept/automation/requirements.txt
+
+      - name: 의존성 설치
+        run: python -m pip install --upgrade pip && pip install -r JJaept/automation/requirements.txt
+
+      - name: 실행 유형 결정
+        id: select
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TYPE="${{ inputs.content_type }}"
+          elif [[ "${{ github.event.schedule }}" == "0 0 * * *" ]]; then
+            TYPE="stock"
+          elif [[ "${{ github.event.schedule }}" == "30 0 * * *" ]]; then
+            TYPE="lifestyle_am"
+          elif [[ "${{ github.event.schedule }}" == "0 5 * * *" ]]; then
+            TYPE="lifestyle_pm"
+          else
+            echo "지원하지 않는 실행 조건입니다."
+            exit 1
+          fi
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: 콘텐츠 생성
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_TEXT_MODEL: ${{ vars.OPENAI_TEXT_MODEL || 'gpt-5.2' }}
+          OPENAI_IMAGE_MODEL: ${{ vars.OPENAI_IMAGE_MODEL || 'gpt-image-2' }}
+        run: python JJaept/automation/generate_content.py --type "${{ steps.select.outputs.type }}"
+
+      - name: 변경 사항 확인
+        id: changes
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain -- JJaept)" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 콘텐츠 커밋 및 푸시
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "JJaept Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add JJaept
+          git commit -m "JJaept: ${{ steps.select.outputs.type }} 콘텐츠 자동 생성"
+          git push
