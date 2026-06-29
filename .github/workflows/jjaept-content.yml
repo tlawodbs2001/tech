@@ -1,11 +1,7 @@
 name: JJaept 콘텐츠 자동 생성
 
+# 예약 실행을 중지했습니다. 필요 시 Actions 화면에서만 수동 실행합니다.
 on:
-  schedule:
-    # GitHub Actions cron은 UTC 기준입니다.
-    - cron: "0 0 * * *"   # KST 09:00 증권 리포트
-    - cron: "30 0 * * *"  # KST 09:30 오전 생활 콘텐츠
-    - cron: "0 5 * * *"   # KST 14:00 오후 생활 콘텐츠
   workflow_dispatch:
     inputs:
       content_type:
@@ -52,14 +48,8 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TYPE="${{ inputs.content_type }}"
-          elif [[ "${{ github.event.schedule }}" == "0 0 * * *" ]]; then
-            TYPE="stock"
-          elif [[ "${{ github.event.schedule }}" == "30 0 * * *" ]]; then
-            TYPE="lifestyle_am"
-          elif [[ "${{ github.event.schedule }}" == "0 5 * * *" ]]; then
-            TYPE="lifestyle_pm"
           else
-            echo "지원하지 않는 실행 조건입니다."
+            echo "수동 실행에서만 동작합니다."
             exit 1
           fi
           echo "type=$TYPE" >> "$GITHUB_OUTPUT"
